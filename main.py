@@ -1,49 +1,58 @@
-import math
 import logging
+import math
+import os
+import sys
 
 CANVAS_W = 100.0
 CANVAS_H = 100.0
-MARGIN = 5.0
-
-logger = logging.getLogger(__name__)
 
 
-def parse_positive_float(raw, field_name):
+def setup_logging():
+    os.makedirs("logs", exist_ok=True)
+
+    log_format = "%(asctime)s | %(levelname)-7s | %(message)s"
+    date_format = "%Y-%m-%d %H:%M:%S"
+
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format=log_format,
+        datefmt=date_format,
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler("logs/file_txt.log", encoding="utf-8"),
+        ],
+    )
+
+
+def parse_float_or_none(raw):
+    if raw is None:
+        return None
     s = raw.strip().replace(",", ".")
     if not s:
-        raise ValueError(f"{field_name}: пустая строка")
+        return None
     try:
-        v = float(s)
+        return float(s)
     except ValueError:
-        raise ValueError(f"{field_name}: не является числом")
-    if v <= 0:
-        raise ValueError(f"{field_name}: должно быть положительным")
-    return v
+        return None
 
 
 def classify_triangle(a, b, c):
+    if a <= 0 or b <= 0 or c <= 0:
+        return "не треугольник"
     if a + b <= c or a + c <= b or b + c <= a:
-        raise ValueError("Треугольник с такими сторонами не существует")
-
+        return "не треугольник"
     if a == b == c:
-        side_type = "равносторонний"
-    elif a == b or a == c or b == c:
-        side_type = "равнобедренный"
-    else:
-        side_type = "разносторонний"
-
-    s1, s2, s3 = sorted((a, b, c))
-    if s3 ** 2 == s1 ** 2 + s2 ** 2:
-        angle_type = "прямоугольный"
-    elif s3 ** 2 < s1 ** 2 + s2 ** 2:
-        angle_type = "остроугольный"
-    else:
-        angle_type = "тупоугольный"
-
-    return side_type, angle_type
+        return "равносторонний"
+    if a == b or a == c or b == c:
+        return "равнобедренный"
+    return "разносторонний"
 
 
 def calculate_vertices(a, b, c):
+    """
+    Координаты вершин без масштабирования: 1 единица длины = 1 px.
+    Фигура просто центрируется в поле 100x100.
+    """
     A = (0.0, 0.0)
     B = (c, 0.0)
 
@@ -59,45 +68,57 @@ def calculate_vertices(a, b, c):
     width = max_x - min_x
     height = max_y - min_y
 
-    scale = min(
-        (CANVAS_W - 2 * MARGIN) / width,
-        (CANVAS_H - 2 * MARGIN) / height,
-    )
-
-    offset_x = (CANVAS_W - width * scale) / 2
-    offset_y = (CANVAS_H - height * scale) / 2
+    # Сдвиг, чтобы центр фигуры совпал с центром поля.
+    offset_x = (CANVAS_W - width) / 2 - min_x
+    offset_y = (CANVAS_H - height) / 2 - min_y
 
     def to_screen(p):
-        sx = offset_x + (p[0] - min_x) * scale
-        sy = CANVAS_H - (offset_y + (p[1] - min_y) * scale)
-        return round(sx, 2), round(sy, 2)
+        sx = p[0] + offset_x
+        # Y инвертируем: в экранной системе ось Y направлена вниз.
+        sy = CANVAS_H - (p[1] + offset_y)
+        return int(round(sx)), int(round(sy))
 
-    return {"A": to_screen(A), "B": to_screen(B), "C": to_screen(C)}
+    return [to_screen(A), to_screen(B), to_screen(C)]
+
+
+def process_triangle(raw_a, raw_b, raw_c):
+    a = parse_float_or_none(raw_a)
+    b = parse_float_or_none(raw_b)
+    c = parse_float_or_none(raw_c)
+
+    if a is None or b is None or c is None:
+        return "", [(-2, -2), (-2, -2), (-2, -2)]
+
+    ttype = classify_triangle(a, b, c)
+    if ttype == "не треугольник":
+        return "не треугольник", [(-1, -1), (-1, -1), (-1, -1)]
+
+    return ttype, calculate_vertices(a, b, c)
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    setup_logging()
+    logging.info("Логгер успешно сконфигурирован")
+    logging.info("Приложение запущено")
 
     try:
-        a = parse_positive_float(input("Сторона A: "), "A")
-        b = parse_positive_float(input("Сторона B: "), "B")
-        c = parse_positive_float(input("Сторона C: "), "C")
+        raw_a = input("Сторона A: ")
+        raw_b = input("Сторона B: ")
+        raw_c = input("Сторона C: ")
 
-        side_type, angle_type = classify_triangle(a, b, c)
-        vertices = calculate_vertices(a, b, c)
+        logging.info("Запрос: A=%r, B=%r, C=%r", raw_a, raw_b, raw_c)
 
-        logger.info("Вид по сторонам: %s", side_type)
-        logger.info("Вид по углам: %s", angle_type)
-        logger.info("Вершины: %s", vertices)
+        ttype, vertices = process_triangle(raw_a, raw_b, raw_c)
 
-        print(f"Вид по сторонам: {side_type}")
-        print(f"Вид по углам: {angle_type}")
-        for name, p in vertices.items():
-            print(f"  {name}: {p}")
+        logging.info("Результат: тип=%s, вершины=%s", ttype, vertices)
 
-    except ValueError as exc:
-        logger.error("Ошибка: %s", exc)
-        print(f"Ошибка: {exc}")
+        print(f"Тип треугольника: {ttype!r}")
+        print(f"Координаты вершин: {vertices}")
+
+    except Exception:
+        logging.error("Что-то пошло не так...")
+        logging.exception("Заход в блок обработки исключения:")
+        print("Ошибка: см. лог")
 
 
 if __name__ == "__main__":
